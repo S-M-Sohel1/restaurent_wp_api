@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WhatsApp Pairing</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #0d1117;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      color: #e6edf3;
+    }
+
+    .card {
+      background: #161b22;
+      border: 1px solid #30363d;
+      border-radius: 12px;
+      padding: 2.5rem 2rem;
+      text-align: center;
+      width: 100%;
+      max-width: 420px;
+    }
+
+    .logo {
+      width: 48px;
+      height: 48px;
+      margin: 0 auto 1rem;
+    }
+
+    h1 {
+      font-size: 1.25rem;
+      font-weight: 600;
+      margin-bottom: 0.375rem;
+    }
+
+    p.sub {
+      font-size: 0.875rem;
+      color: #8b949e;
+      margin-bottom: 1.5rem;
+      line-height: 1.5;
+    }
+
+    #qr-wrap {
+      background: #ffffff;
+      border-radius: 8px;
+      padding: 1rem;
+      display: inline-block;
+      margin-bottom: 1.5rem;
+    }
+
+    #qr-wrap canvas { display: block; }
+
+    #status {
+      font-size: 0.875rem;
+      color: #8b949e;
+    }
+
+    #status.linked {
+      color: #3fb950;
+      font-weight: 600;
+      font-size: 1rem;
+    }
+
+    #status.error {
+      color: #f85149;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 18px;
+      height: 18px;
+      border: 2px solid #30363d;
+      border-top-color: #58a6ff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    #key-prompt {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    #key-prompt input {
+      width: 100%;
+      padding: 0.6rem 0.875rem;
+      border-radius: 6px;
+      border: 1px solid #30363d;
+      background: #0d1117;
+      color: #e6edf3;
+      font-size: 0.875rem;
+      outline: none;
+    }
+
+    #key-prompt input:focus { border-color: #58a6ff; }
+
+    #key-prompt button {
+      padding: 0.6rem 1rem;
+      background: #238636;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+
+    #key-prompt button:hover { background: #2ea043; }
+
+    #logout-btn {
+      margin-top: 1rem;
+      padding: 0.5rem 1rem;
+      background: transparent;
+      color: #f85149;
+      border: 1px solid #f85149;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+
+    #logout-btn:hover { background: #f85149; color: #fff; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <!-- WhatsApp SVG icon -->
+    <svg class="logo" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="24" cy="24" r="24" fill="#25D366"/>
+      <path d="M34.5 13.4C32.1 11 28.9 9.5 25.5 9.5c-7.1 0-12.8 5.7-12.8 12.8 0 2.3.6 4.5 1.7 6.4L12.5 35l6.5-1.7c1.8 1 3.9 1.5 6 1.5 7.1 0 12.8-5.7 12.8-12.8 0-3.4-1.3-6.6-3.3-8.6zm-9 19.7c-1.9 0-3.8-.5-5.4-1.5l-.4-.2-4 1 1-3.9-.3-.4c-1.1-1.7-1.7-3.7-1.7-5.7 0-5.9 4.8-10.7 10.7-10.7 2.9 0 5.6 1.1 7.6 3.1 2 2 3.1 4.7 3.1 7.5.1 5.9-4.7 10.8-10.6 10.8zm5.9-8c-.3-.2-1.8-.9-2.1-1s-.5-.2-.7.2-.8 1-1 1.2-.4.2-.7.1c-2.1-.9-3.4-1.7-4.8-3.9-.4-.6.4-.6 1.1-2 .1-.2 0-.4-.1-.6s-.7-1.7-1-2.3c-.3-.6-.5-.5-.7-.5h-.6c-.2 0-.6.1-.9.4-.3.3-1.2 1.2-1.2 2.9s1.2 3.4 1.4 3.6c.2.2 2.4 3.7 5.8 5.1 2.2.9 3 1 4.1.8.7-.1 2.1-.9 2.4-1.7.3-.8.3-1.5.2-1.7-.1-.1-.3-.2-.6-.4z" fill="white"/>
+    </svg>
+
+    <h1>WhatsApp Pairing</h1>
+    <p class="sub">Scan once to link the WhatsApp account.<br>The session persists across restarts.</p>
+
+    <!-- API key input (shown until key is stored in sessionStorage) -->
+    <div id="key-prompt">
+      <input id="api-key-input" type="password" placeholder="Enter WORKER_SECRET / api key" autocomplete="off" />
+      <button id="key-submit">Connect</button>
+    </div>
+
+    <div id="main" style="display:none">
+      <div id="qr-wrap" style="display:none">
+        <img id="qr-img" alt="WhatsApp QR code" width="256" height="256" />
+      </div>
+      <p id="status"><span class="spinner"></span> Connecting…</p>
+      <div id="logout-wrap" style="display:none">
+        <button id="logout-btn">Logout / unlink number</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const keyPrompt = document.getElementById('key-prompt');
+    const mainEl    = document.getElementById('main');
+    const qrWrap    = document.getElementById('qr-wrap');
+    const qrImg     = document.getElementById('qr-img');
+    const statusEl  = document.getElementById('status');
+    const keyInput  = document.getElementById('api-key-input');
+    const keySubmit = document.getElementById('key-submit');
+    const logoutWrap = document.getElementById('logout-wrap');
+    const logoutBtn  = document.getElementById('logout-btn');
+
+    let apiKey = sessionStorage.getItem('wa_api_key') || '';
+    let pollTimer = null;
+
+    if (apiKey) startPolling();
+
+    keySubmit.addEventListener('click', () => {
+      const val = keyInput.value.trim();
+      if (!val) return;
+      apiKey = val;
+      sessionStorage.setItem('wa_api_key', val);
+      startPolling();
+    });
+
+    keyInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') keySubmit.click();
+    });
+
+    function startPolling() {
+      keyPrompt.style.display = 'none';
+      mainEl.style.display    = 'block';
+      poll();
+    }
+
+    async function poll() {
+      try {
+        const res = await fetch('/qr', { headers: { 'x-api-key': apiKey } });
+
+        if (res.status === 401) {
+          setStatus('Wrong API key — refresh and try again.', 'error');
+          sessionStorage.removeItem('wa_api_key');
+          return;
+        }
+
+        const { qrImage, ready } = await res.json();
+
+        if (ready) {
+          qrWrap.style.display = 'none';
+          logoutWrap.style.display = 'block';
+          setStatus('WhatsApp linked ✅ — this page can be closed.', 'linked');
+          return; // stop polling
+        }
+
+        logoutWrap.style.display = 'none';
+
+        if (qrImage) {
+          qrImg.src = qrImage;
+          qrWrap.style.display = 'inline-block';
+          setStatus('Open WhatsApp → Linked Devices → scan the code above.');
+        } else {
+          qrWrap.style.display = 'none';
+          setStatus('<span class="spinner"></span> Waiting for WhatsApp…');
+        }
+      } catch {
+        setStatus('Cannot reach service — retrying…', 'error');
+      }
+
+      pollTimer = setTimeout(poll, 3000);
+    }
+
+    logoutBtn.addEventListener('click', async () => {
+      if (!confirm('Unlink this WhatsApp number? You will need to scan a new QR code.')) return;
+      logoutBtn.disabled = true;
+      logoutBtn.textContent = 'Logging out…';
+      try {
+        const res = await fetch('/logout', {
+          method: 'POST',
+          headers: { 'x-api-key': apiKey },
+        });
+        if (res.ok) {
+          logoutWrap.style.display = 'none';
+          setStatus('<span class="spinner"></span> Logged out — waiting for new QR…');
+          pollTimer = setTimeout(poll, 2000);
+        } else {
+          logoutBtn.disabled = false;
+          logoutBtn.textContent = 'Logout / unlink number';
+          setStatus('Logout failed — try again.', 'error');
+        }
+      } catch {
+        logoutBtn.disabled = false;
+        logoutBtn.textContent = 'Logout / unlink number';
+        setStatus('Cannot reach service.', 'error');
+      }
+    });
+
+    function setStatus(html, cls = '') {
+      statusEl.innerHTML  = html;
+      statusEl.className  = cls;
+    }
+  </script>
+</body>
+</html>

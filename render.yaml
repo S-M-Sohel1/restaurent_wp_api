@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: wa-service
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: node dist/server.js
+    plan: free
+    envVars:
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: WORKER_SECRET
+        sync: false
