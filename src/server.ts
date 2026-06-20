@@ -8,6 +8,22 @@ import { useSupabaseAuthState } from './lib/supabaseAuthState';
 
 const logger = pino({ level: 'info' });
 const app = express();
+
+// ── CORS & Middleware ─────────────────────────────────────────────────────────
+app.use((req: Request, res: Response, next: NextFunction) => {
+  // Allow requests from any origin (or restrict to specific domains if needed)
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, x-api-key');
+  
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+    return;
+  }
+  
+  next();
+});
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
@@ -26,6 +42,7 @@ async function connect(): Promise<void> {
       version,
       printQRInTerminal: false,
       logger: pino({ level: 'silent' }),
+      syncFullHistory: false, // Don't download full history on connect
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -60,6 +77,14 @@ async function connect(): Promise<void> {
         reconnectDelay = Math.min(reconnectDelay * 2, 60_000);
       }
     });
+
+    // Handle socket errors
+    sock.ev.on('call', (calls) => {
+      calls.forEach((call) => {
+        logger.info({ from: call.from }, 'Incoming call');
+      });
+    });
+
   } catch (err) {
     logger.error(err, 'connect() threw — retrying in 10s');
     setTimeout(() => connect(), 10_000);
@@ -151,12 +176,22 @@ app.get('/', (_req: Request, res: Response): void => {
 });
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
-const PORT = process.env.PORT ?? 8000;
+const PORT = parseInt(process.env.PORT ?? '8000', 10);
+const HOST = '0.0.0.0'; // Listen on all network interfaces for Render compatibility
 
 connect().catch((err) => {
   logger.error(err, 'Failed to connect on boot');
 });
 
-app.listen(PORT, () => {
-  logger.info({ port: PORT }, 'wa-service started');
+const server = app.listen(PORT, HOST, () => {
+  logger.info({ port: PORT, host: HOST }, 'wa-service started');
+});
+
+// Graceful shutdown
+process.on('SIGTERM', () => {
+  logger.info('SIGTERM received, shutting down gracefully');
+  server.close(() => {
+    logger.info('Server closed');
+    process.exit(0);
+  });
 });
