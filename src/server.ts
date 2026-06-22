@@ -31,23 +31,54 @@ let sock: WASocket | null = null;
 let lastQr: string | null = null;
 let ready = false;
 let reconnectDelay = 3_000;
+let isConnecting = false;          // guard: prevents concurrent connect() calls
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+function scheduleReconnect(delayMs: number) {
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connect();
+  }, delayMs);
+}
 
 async function connect(): Promise<void> {
+  // Prevent multiple concurrent connect() calls
+  if (isConnecting) {
+    logger.info('connect() already in progress — skipping duplicate call');
+    return;
+  }
+  isConnecting = true;
+
+  // Destroy previous socket cleanly so its event listeners stop firing
+  if (sock) {
+    try { sock.end(undefined); } catch { /* ignore */ }
+    sock = null;
+  }
+
   try {
     const { state, saveCreds } = await useSupabaseAuthState();
     const { version } = await fetchLatestBaileysVersion();
 
-    sock = makeWASocket({
+    const newSock = makeWASocket({
       auth: state,
       version,
       printQRInTerminal: false,
       logger: pino({ level: 'silent' }),
-      syncFullHistory: false, // Don't download full history on connect
+      syncFullHistory: false,
+      // Increase QR timeout so the code doesn't expire before the user scans
+      qrTimeout: 60_000,
     });
+
+    sock = newSock;
+    isConnecting = false;          // connection attempt handed off to events
 
     sock.ev.on('creds.update', saveCreds);
 
     sock.ev.on('connection.update', (u) => {
+      // Guard: ignore events from a stale socket that was replaced
+      if (newSock !== sock) return;
+
       const { connection, qr, lastDisconnect } = u;
 
       if (qr) {
@@ -58,7 +89,8 @@ async function connect(): Promise<void> {
       if (connection === 'open') {
         ready = true;
         lastQr = null;
-        reconnectDelay = 3_000; // reset backoff on successful connect
+        reconnectDelay = 3_000;
+        if (reconnectTimer) { clearTimeout(reconnectTimer); reconnectTimer = null; }
         logger.info('WhatsApp connected and ready');
       }
 
@@ -68,26 +100,28 @@ async function connect(): Promise<void> {
         logger.warn({ code, nextRetryMs: reconnectDelay }, 'Connection closed');
 
         if (code === DisconnectReason.loggedOut) {
-          logger.warn('Logged out — open / to re-pair');
+          logger.warn('Logged out — clearing session and regenerating QR');
+          import('@supabase/supabase-js').then(({ createClient }) => {
+            const sb = createClient(process.env.SUPABASE_URL!, process.env.SUPABASE_SERVICE_ROLE_KEY!);
+            sb.from('baileys_auth').delete().neq('id', '').then(() => connect());
+          });
           return;
         }
 
         // Exponential backoff capped at 60 s
-        setTimeout(() => connect(), reconnectDelay);
+        scheduleReconnect(reconnectDelay);
         reconnectDelay = Math.min(reconnectDelay * 2, 60_000);
       }
     });
 
-    // Handle socket errors
     sock.ev.on('call', (calls) => {
-      calls.forEach((call) => {
-        logger.info({ from: call.from }, 'Incoming call');
-      });
+      calls.forEach((call) => logger.info({ from: call.from }, 'Incoming call'));
     });
 
   } catch (err) {
+    isConnecting = false;
     logger.error(err, 'connect() threw — retrying in 10s');
-    setTimeout(() => connect(), 10_000);
+    scheduleReconnect(10_000);
   }
 }
 
